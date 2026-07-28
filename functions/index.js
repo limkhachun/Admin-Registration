@@ -1,5 +1,6 @@
 const { onDocumentCreated, onDocumentUpdated, onDocumentWritten } = require("firebase-functions/v2/firestore");
-const { onSchedule } = require("firebase-functions/v2/scheduler"); // 🟢 引入定时任务模块
+const { onSchedule } = require("firebase-functions/v2/scheduler"); 
+const { onCall, HttpsError } = require("firebase-functions/v2/https"); // 🟢 新增：引入 v2 HTTPS 模块用于客户端调用
 const { setGlobalOptions } = require("firebase-functions/v2");
 const admin = require("firebase-admin");
 const { logger } = require("firebase-functions");
@@ -148,14 +149,12 @@ exports.autoClockOutJob = onSchedule({
 }, async (event) => {
     const db = admin.firestore();
     
-    // Get accurate Malaysia time strings
     const now = new Date();
     const mytTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kuala_Lumpur" }));
     const todayStr = mytTime.getFullYear() + "-" + 
                      String(mytTime.getMonth() + 1).padStart(2, '0') + "-" + 
                      String(mytTime.getDate()).padStart(2, '0');
 
-    // Convert current time to total minutes for easy comparison (e.g., 18:30 -> 1110)
     const currentMinutes = (mytTime.getHours() * 60) + mytTime.getMinutes();
 
     try {
@@ -182,7 +181,6 @@ exports.autoClockOutJob = onSchedule({
 
         for (const [identifier, records] of Object.entries(userRecords)) {
             
-            // Sort descending to get the latest record
             records.sort((a, b) => {
                 const timeA = a.timestamp.toMillis ? a.timestamp.toMillis() : a.timestamp;
                 const timeB = b.timestamp.toMillis ? b.timestamp.toMillis() : b.timestamp;
@@ -191,31 +189,23 @@ exports.autoClockOutJob = onSchedule({
 
             const latestRecord = records[0];
 
-            // If the user is currently clocked in
             if (latestRecord.session === "Clock In") {
                 
-                // 1. Fetch user's specific profile to get their schedule
                 const userDoc = await db.collection("users").doc(identifier).get();
                 if (!userDoc.exists) continue;
                 const userData = userDoc.data();
 
-                // IMPORTANT: Change 'scheduleEndTime' to match your actual database field name
-                // e.g., userData.shift.endTime or userData.workingHours.to
                 const scheduledEndTimeStr = userData.scheduleEndTime || "18:00"; 
                 
-                // Parse their scheduled end time into minutes
                 const [endHour, endMin] = scheduledEndTimeStr.split(':').map(Number);
                 const scheduledEndMinutes = (endHour * 60) + endMin;
 
-                // Optional: Give them a grace period (e.g., 30 minutes) before forcing them out
                 const gracePeriodMinutes = 30; 
 
-                // 2. Check if current time exceeds their schedule + grace period
                 if (currentMinutes >= (scheduledEndMinutes + gracePeriodMinutes)) {
                     
                     const newRecordRef = db.collection("attendance").doc();
                     
-                    // Use actual time of force-out, or use scheduled end time if you prefer
                     const forceTimestamp = admin.firestore.Timestamp.fromDate(now);
                     const manualOutTime = `${String(mytTime.getHours()).padStart(2, '0')}:${String(mytTime.getMinutes()).padStart(2, '0')}`;
 
@@ -236,7 +226,6 @@ exports.autoClockOutJob = onSchedule({
                     batchOperationCount++;
                     logger.info(`[Fixed] Auto Clock Out enforced for ${latestRecord.name || identifier} at ${manualOutTime}`);
 
-                    // Firestore batch 500 operation limit protection
                     if (batchOperationCount === 450) {
                         await batch.commit();
                         batch = db.batch(); 
@@ -252,11 +241,39 @@ exports.autoClockOutJob = onSchedule({
 
         if (fixCount > 0) {
             logger.info(`✅ Successfully fixed ${fixCount} missing clock outs up to ${mytTime.getHours()}:${mytTime.getMinutes()}.`);
-        } else {
-            // Keep logs clean, don't spam if nothing happened
         }
 
     } catch (error) {
         logger.error("❌ Error in Auto Clock Out Job:", error);
+    }
+});
+
+
+// ============================================================================
+// 5. 强制重置用户密码 (Reset User Password) - 供 Flutter App 客户端调用
+// ============================================================================
+exports.resetUserPassword = onCall(async (request) => {
+    // 🟢 v2 语法的参数提取方式是 request.data
+    const uid = request.data.uid;
+    const newPassword = request.data.newPassword;
+
+    if (!uid || !newPassword) {
+        throw new HttpsError(
+            'invalid-argument', 
+            'The function must be called with a "uid" and "newPassword".'
+        );
+    }
+
+    try {
+        // 使用 Admin SDK 强制更新该 UID 的密码
+        await admin.auth().updateUser(uid, {
+            password: newPassword
+        });
+        
+        logger.info(`Password successfully reset for UID: ${uid}`);
+        return { success: true, message: "Password successfully updated." };
+    } catch (error) {
+        logger.error(`Error updating password for UID ${uid}:`, error);
+        throw new HttpsError('internal', error.message);
     }
 });
