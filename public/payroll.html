@@ -104,7 +104,9 @@
             <div class="modal-content">
                 <div class="modal-header bg-light d-flex justify-content-between align-items-center">
                     <div class="d-flex align-items-center gap-3">
+                        <!-- MODIFIED: Added termination badge next to title -->
                         <h5 class="modal-title fw-bold m-0" id="formModalTitle">Create Payslip</h5>
+                        <span id="termBadge" class="badge bg-danger ms-2 d-none">FINAL PAY</span>
                         
                         <div class="btn-group shadow-sm" id="navPayslipGroup" style="display: none;">
                             <button type="button" class="btn btn-outline-secondary btn-sm px-2 fw-bold" onclick="window.navigatePayslip(-1)" title="Previous (Left Arrow)">
@@ -460,6 +462,6 @@
         </div>
     </div>
 
-    <script type="module" src="payroll-app.js?v=4"></script>
+    <script type="module" src="payroll-app.js?v=5"></script>
 </body>
 </html>

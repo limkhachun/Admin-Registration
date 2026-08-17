@@ -347,6 +347,12 @@ window.autoFillStaffData = async () => {
     const badgeEl = document.getElementById('calcModeBadge');
     if(badgeEl) badgeEl.className = isHourly ? 'badge bg-primary me-2' : 'badge bg-success me-2';
     
+    // MODIFIED: Manage the termBadge on the UI if a termDate applies this month
+    const termDate = staff?.employment?.termDate;
+    const isTerminatedThisMonth = termDate && termDate.startsWith(monthStr);
+    const termBadge = document.getElementById('termBadge');
+    if (termBadge) termBadge.classList.toggle('d-none', !isTerminatedThisMonth);
+
     const boxStdDays = document.getElementById('boxStdDays');
     const boxHourlyRate = document.getElementById('boxHourlyRate');
     if(boxStdDays) boxStdDays.classList.toggle('d-none', isHourly);
@@ -392,8 +398,17 @@ async function calculateAttendanceStats(uid, monthStr) {
 
     const [year, month] = monthStr.split('-');
     const startDate = `${monthStr}-01`;
-    const daysInMonth = new Date(year, month, 0).getDate();
-    const endDate = `${monthStr}-${daysInMonth}`;
+    let daysInMonth = new Date(year, month, 0).getDate();
+    
+    // --- MODIFIED LOGIC: Check for Termination Date ---
+    const termDate = staff.employment?.termDate;
+    if (termDate && termDate.startsWith(monthStr)) {
+        // Limit the calculated days to their exact termination date
+        daysInMonth = parseInt(termDate.split('-')[2], 10);
+    }
+    // --------------------------------------------------
+
+    const endDate = `${monthStr}-${String(daysInMonth).padStart(2, '0')}`;
     
     const targetIds = [String(uid)];
     if (staff.authUid) targetIds.push(String(staff.authUid));
@@ -862,6 +877,12 @@ window.savePayslipForm = async () => {
 
     showLoading();
     const staff = staffMap[uid];
+    
+    // --- MODIFIED LOGIC: Flag if terminated this month ---
+    const termDate = staff?.employment?.termDate;
+    const isTerminatedThisMonth = termDate && termDate.startsWith(month);
+    // -----------------------------------------------------
+
     const getVal = (id) => { const el = document.getElementById(id); return el ? (parseFloat(el.value) || 0) : 0; };
     const status = document.getElementById('formStatus')?.value || 'Draft';
     
@@ -876,6 +897,7 @@ window.savePayslipForm = async () => {
         uid: uid, 
         authUid: staff ? staff.authUid : null,
         month,
+        endDate: isTerminatedThisMonth ? termDate : null, // MODIFIED: Save to database
         companyName: document.getElementById('inpCompany')?.value || 'RH RIDER HUB MOTOR (M) SDN. BHD.',
         staffName: staff ? staff.displayName : 'Unknown',
         staffCode: staff ? staff.displayId : '',
@@ -999,12 +1021,13 @@ window.loadPayroll = async () => {
 
             const displayName = staffMap[d.uid] ? staffMap[d.uid].displayName : d.staffName;
             const modeText = d.attendanceStats?.mode === 'hourly' ? '⌚ Hourly' : '📅 Daily';
+            const termIndicator = d.endDate ? `<span class="badge bg-danger ms-1" style="font-size:10px;">FINAL PAY</span>` : '';
             
             const row = document.createElement('div');
             row.className = `row align-items-center py-3 border-bottom px-3 bg-white status-${d.status} hover-bg-light`;
             row.innerHTML = `
                 <div class="col-3">
-                    <div class="fw-bold text-primary" style="cursor:pointer" onclick="window.openEditModal('${d.id}')">${displayName}</div>
+                    <div class="fw-bold text-primary" style="cursor:pointer" onclick="window.openEditModal('${d.id}')">${displayName} ${termIndicator}</div>
                     <small class="text-muted">${modeText}</small>
                 </div>
                 <div class="col-2 text-primary fw-bold">RM ${formatMoney(d.final_basic || d.basic)}</div>
@@ -1036,6 +1059,8 @@ window.openCreateModal = () => {
     safeSetVal('editDocId', "");
     safeSetVal('pendingAdvanceIds', "");
     safeSetText('formModalTitle', "Create New Payslip");
+    const termBadge = document.getElementById('termBadge');
+    if (termBadge) termBadge.classList.add('d-none');
     
     const staffSelect = document.getElementById('staffSelect');
     const formMonthPicker = document.getElementById('formMonthPicker');
@@ -1069,6 +1094,8 @@ window.openEditModal = (id) => {
 
     safeSetVal('editDocId', id);
     safeSetText('formModalTitle', "Edit Payslip - " + d.staffName);
+    const termBadge = document.getElementById('termBadge');
+    if (termBadge) termBadge.classList.toggle('d-none', !d.endDate);
     
     const staffSelect = document.getElementById('staffSelect');
     const formMonthPicker = document.getElementById('formMonthPicker');
@@ -1205,8 +1232,15 @@ window.viewPayslip = (id) => {
     let payPeriodDisplay = d.month;
     if (d.month && d.month.includes('-')) {
         const [year, mth] = d.month.split('-');
-        const lastDay = new Date(year, mth, 0).getDate();
+        let lastDay = new Date(year, mth, 0).getDate();
         let startDay = "01";
+        
+        // --- MODIFIED LOGIC: Override last day if terminated ---
+        if (d.endDate) {
+            const endParts = d.endDate.split('-');
+            if(endParts.length === 3) lastDay = endParts[2];
+        }
+        // -------------------------------------------------------
         
         const jDate = d.joinDate || staffMap[d.uid]?.employment?.joinDate;
         if (jDate) {
@@ -1318,6 +1352,8 @@ window.viewPayslip = (id) => {
         letterheadSrc = "assets/images/Header_H_DIGITAL_CARRIER_MARKETING.jpeg"; 
     }
 
+    let headerBadge = d.endDate ? `<span style="color:#dc2626; border:1px solid #dc2626; padding:1px 6px; border-radius:10px; font-size:10px; margin-left:6px; vertical-align:middle;">FINAL PAY</span>` : '';
+
     const html = `
         <div class="payslip-preview bg-white shadow-sm border rounded">
             
@@ -1327,7 +1363,7 @@ window.viewPayslip = (id) => {
 
             <div class="info-grid bg-light p-3 rounded mb-3 border">
                 <div>
-                    <div class="info-row"><span>Employee Name</span> <span class="fw-bold">: ${d.staffName}</span></div>
+                    <div class="info-row"><span>Employee Name</span> <span class="fw-bold">: ${d.staffName} ${headerBadge}</span></div>
                     <div class="info-row"><span>Department</span> <span>: ${d.department}</span></div>
                     <div class="info-row"><span>Employee Code</span> <span>: ${d.staffCode}</span></div>
                     <div class="info-row mt-1 pt-1 border-top border-secondary border-opacity-25"><span>Bank Acc</span> <span class="fw-bold">: ${d.bankAcc || '-'} (${d.bankName || '-'})</span></div>
@@ -1561,7 +1597,16 @@ window.generateAllDrafts = async () => {
                 }
             });
 
-            for (let d = 1; d <= daysInMonth; d++) {
+            // --- MODIFIED LOGIC: Handle Termination Date per Staff ---
+            let daysInMonthForStaff = daysInMonth;
+            const termDate = staff.employment?.termDate;
+            const isTerminatedThisMonth = termDate && termDate.startsWith(monthStr);
+            if (isTerminatedThisMonth) {
+                daysInMonthForStaff = parseInt(termDate.split('-')[2], 10);
+            }
+            // ---------------------------------------------------------
+
+            for (let d = 1; d <= daysInMonthForStaff; d++) {
                 const dateStr = `${year}-${month}-${String(d).padStart(2, '0')}`;
                 const records = myAtt[dateStr];
                 const sched = mySchedsList[dateStr];
@@ -1784,6 +1829,7 @@ window.generateAllDrafts = async () => {
                 uid: uid, 
                 authUid: staff.authUid || null, 
                 month: monthStr,
+                endDate: isTerminatedThisMonth ? termDate : null, // MODIFIED: Save to database
                 companyName: globalSettings.defaultCompany || 'RH RIDER HUB MOTOR (M) SDN. BHD.',
                 staffName: staff.displayName,
                 staffCode: staff.displayId,
