@@ -1349,7 +1349,7 @@ window.viewPayslip = (id) => {
     } else if (compName === "H DIGITAL MARKETING SDN BHD") {
         letterheadSrc = "assets/images/Header_H_DIGITAL_CARRIER_MARKETING.jpeg";
     } else {
-        letterheadSrc = "assets/images/Header_H_DIGITAL_CARRIER_MARKETING.jpeg"; 
+        letterheadSrc = "assets/images/Header_RH_RIDER_HUB_MOTOR(BORNEO).jpeg"; 
     }
 
     let headerBadge = d.endDate ? `<span style="color:#dc2626; border:1px solid #dc2626; padding:1px 6px; border-radius:10px; font-size:10px; margin-left:6px; vertical-align:middle;">FINAL PAY</span>` : '';
